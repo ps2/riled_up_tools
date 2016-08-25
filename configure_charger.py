@@ -6,8 +6,10 @@ from charger import *
 ic = FAN54040ChargerIC(1)
 
 print "Pre-configuration settings:"
-print "VOREG = 0x%0x" % ic.voreg()
+print "VOREG = %gv" % ic.voreg()
+print "IOCHARGE = 0x%0x" % ic.iocharge()
 ic.configure_defaults()
 print "Post-configuration settings:"
-print "VOREG = 0x%0x" % ic.voreg()
+print "VOREG = %gv" % ic.voreg()
+print "IOCHARGE = 0x%0x" % ic.iocharge()
 

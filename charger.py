@@ -33,15 +33,114 @@ class FAN54040ChargerIC(I2CChip):
         super(FAN54040ChargerIC, self).__init__(bus, self.I2C_ADDR)
 
     def configure_defaults(self):
+        # Disable watchdog timer
+        self.write(self.WD_CONTROL, 0b01101110)
+        
         # This sets Voreg to 4.20V
-        self.set_voreg(0x23) 
+        self.set_voreg(4.2)
 
-    def get_status(self):
-        return self.read(self.MONITOR0)
+        # Set IO_LEVEL to 1
+        self.write(self.VBUS_CONTROL, 0b00000100)
+
+        # Set IOCHARGE to 1.25A, ITERM to default
+        self.write(self.IBAT, 0b00111001)
+
+    def print_status(self):
+        print "Voreg = %gv" % self.voreg()
+        print "Iocharge = %d mA" % self.iocharge()
+
+        mon0 = self.read(self.MONITOR0)
+        if (mon0 & 0b10000000):
+            print "ITERM_CMP = 1: Icharge > Iterm"
+        else:
+            print "ITERM_CMP = 0: Icharge <= Iterm"
+
+        if (mon0 & 0b1000000):
+            print "VBAT_CMP = 1: Vbat < Vbus"
+        else:
+            print "VBAT_CMP = 0: Vbat >= Vbus"
+
+        if (mon0 & 0b100000):
+            print "LINCHG = 1: 30mA linear charger ON (Vbat < Vshort)"
+        else:
+            print "LINCHG = 0: 30mA linear charger OFF"
+
+        if (mon0 & 0b10000):
+            print "T_120 = 1: Die temperature > 120c. Current charge limited to 340 mA"
+        else:
+            print "T_120 = 0: Die temperature < 120c. Current charge NOT limited to 340 mA"
+
+        if (mon0 & 0b1000):
+            print "ICHG = 1: Icharge loop NOT controlling charge current"
+        else:
+            print "ICHG = 0: ICHARGE loop IS controlling charge current"
+
+        if (mon0 & 0b100):
+            print "IBUS = 1: IBUS (input current) NOT controlling charge current"
+        else:
+            print "IBUS = 0: IBUS (input current) IS controlling charge current"
+
+        if (mon0 & 0b10):
+            print "VBUS_VALID = 1: Vbus IS capable of charging"
+        else:
+            print "VBUS_VALID = 1: Vbus is NOT capable of charging"
+
+        if (mon0 & 0b1):
+            print "CV = 1: OREG controlling charger"
+        else:
+            print "CV = 0: OREG not controlling charger (other limiting loops are controlling)"
+
+        mon1 = self.read(self.MONITOR1)
+        if (mon1 & 0b10000000):
+            print "GATE = 1: GATE pin is HIGH, Q5 is off"
+        else:
+            print "GATE = 0: GATE pin is LOW, Q5 is driven on"
+
+        if (mon1 & 0b1000000):
+            print "VBAT = 1: Vbat > Vbatmin in PP charging, Vbat > Vlow in PWM charging"
+        else:
+            print "VBAT = 0: Vbat < Vbatmin in PP charging, Vbat < Vlow in PWM charging"
+
+        if (mon1 & 0b100000):
+            print "POK_B = 1: POK_B Pin is HIGH"
+        else:
+            print "POK_B = 1: POK_B Pin is LOW"
+
+        if (mon1 & 0b10000):
+            print "DIS_LEVEL = 1: DIS Pin is HIGH"
+        else:
+            print "DIS_LEVEL = 0: DIS Pin is LOW"
+
+        if (mon1 & 0b1000):
+            print "NOBAT = 1: Battery absent"
+        else:
+            print "NOBAT = 0: Battery present"
+            
+        if (mon1 & 0b100):
+            print "PC_ON = 1: Post charging (background charging is under progress)"
+        else:
+            print "PC_ON = 0: Post charging (background charging is NOT under progress)"
 
     def voreg(self):
-        return self.read(self.OREG) >> 2
+        v = (self.read(self.OREG) >> 2) * 0.02 + 3.50
+        if v > 4.44:
+            v = 4.44
+        return v
 
-    def set_voreg(self, val):
+    def set_voreg(self, voltage):
+        if voltage > 4.44:
+            voltage = 4.44
+        if voltage < 3.50:
+            voltage = 3.50
+
+        val = int(round((voltage - 3.50) / 0.02))
+
         self.write(self.OREG, (val & 0b111111) << 2)
+
+    def iocharge(self):
+        val = (self.read(self.IBAT) >> 3) & 0xf
+        return val * 100 + 550
+
+    def reset_timer(self):
+        self.write(self.CONTROL0, 0b1100000)
 
