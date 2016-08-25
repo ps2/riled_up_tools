@@ -33,10 +33,13 @@ class FAN54040ChargerIC(I2CChip):
         super(FAN54040ChargerIC, self).__init__(bus, self.I2C_ADDR)
 
     def configure_defaults(self):
-        # SAFETY register can only be set once, at startup, to set limits
+
+        # SAFETY register can only be set at startup, to set limits
         isafe = 0b1010  # 1550 mA
         vsafe = 0b0000  # 4.2v (default)
-        self.write(self.SAFETY, (isafe << 4) | vsafe)
+        val = (isafe << 4) | vsafe
+        self.write(self.SAFETY, val)
+        self.write(self.SAFETY, val)
 
         # Disable watchdog timer
         self.write(self.WD_CONTROL, 0b01101110)
