@@ -7,9 +7,9 @@ ic = FAN54040ChargerIC(1)
 
 print "Pre-configuration settings:"
 print "VOREG = %gv" % ic.voreg()
-print "IOCHARGE = 0x%0x" % ic.iocharge()
+print "IOCHARGE = %d mA" % ic.iocharge()
 ic.configure_defaults()
 print "Post-configuration settings:"
 print "VOREG = %gv" % ic.voreg()
-print "IOCHARGE = 0x%0x" % ic.iocharge()
+print "IOCHARGE = %d mA" % ic.iocharge()
 

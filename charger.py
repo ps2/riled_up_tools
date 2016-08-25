@@ -33,6 +33,11 @@ class FAN54040ChargerIC(I2CChip):
         super(FAN54040ChargerIC, self).__init__(bus, self.I2C_ADDR)
 
     def configure_defaults(self):
+        # SAFETY register can only be set once, at startup, to set limits
+        isafe = 0b1010  # 1550 mA
+        vsafe = 0b0000  # 4.2v (default)
+        self.write(self.SAFETY, (isafe << 4) | vsafe)
+
         # Disable watchdog timer
         self.write(self.WD_CONTROL, 0b01101110)
         
@@ -45,8 +50,8 @@ class FAN54040ChargerIC(I2CChip):
         # Set IO_LEVEL to 1
         self.write(self.VBUS_CONTROL, 0b00000100)
 
-        # Set IOCHARGE to 1.25A, ITERM to default
-        self.write(self.IBAT, 0b00111001)
+        # Set IOCHARGE to 1550mA, ITERM to default
+        self.write(self.IBAT, 0b01010001)
 
     def print_status(self):
         print "Voreg = %gv" % self.voreg()
