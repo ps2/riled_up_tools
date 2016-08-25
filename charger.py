@@ -140,9 +140,9 @@ class FAN54040ChargerIC(I2CChip):
             print "NOBAT = 0: Battery present"
             
         if (mon1 & 0b100):
-            print "PC_ON = 1: Post charging (background charging is under progress)"
+            print "PC_ON = 1: Post charging (background charging) is under progress"
         else:
-            print "PC_ON = 0: Post charging (background charging is NOT under progress)"
+            print "PC_ON = 0: NOT Post charging"
 
         c0 = self.read(self.CONTROL0)
         fault = c0 & 0b111
