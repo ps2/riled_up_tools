@@ -39,6 +39,9 @@ class FAN54040ChargerIC(I2CChip):
         # This sets Voreg to 4.20V
         self.set_voreg(4.2)
 
+        # Make input current unlimited, set weak battery voltage (Vlowv) to 3.4v
+        self.write(self.CONTROL1, 0b11000000)
+
         # Set IO_LEVEL to 1
         self.write(self.VBUS_CONTROL, 0b00000100)
 
@@ -47,7 +50,17 @@ class FAN54040ChargerIC(I2CChip):
 
     def print_status(self):
         print "Voreg = %gv" % self.voreg()
-        print "Iocharge = %d mA" % self.iocharge()
+
+        vbus_control = self.read(self.VBUS_CONTROL)
+        if (vbus_control & 0b1000000):
+            print "PROD = 1: Charger operating in Production Test mode"
+        else:
+            print "PROD = 0: Charger operating in normal mode"
+
+        if (vbus_control & 0b100000):
+            print "IO_LEVEL = 1: Current control is set to 340 mA"
+        else:
+            print "Iocharge = %d mA" % self.iocharge()
 
         mon0 = self.read(self.MONITOR0)
         if (mon0 & 0b10000000):
@@ -102,9 +115,9 @@ class FAN54040ChargerIC(I2CChip):
             print "VBAT = 0: Vbat < Vbatmin in PP charging, Vbat < Vlow in PWM charging"
 
         if (mon1 & 0b100000):
-            print "POK_B = 1: POK_B Pin is HIGH"
+            print "POK_B = 1: Host should limit power usage"
         else:
-            print "POK_B = 1: POK_B Pin is LOW"
+            print "POK_B = 0: High current draw from host is OK"
 
         if (mon1 & 0b10000):
             print "DIS_LEVEL = 1: DIS Pin is HIGH"
