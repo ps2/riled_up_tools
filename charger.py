@@ -48,7 +48,8 @@ class FAN54040ChargerIC(I2CChip):
         self.set_voreg(4.2)
 
         # Make input current unlimited, set weak battery voltage (Vlowv) to 3.4v
-        self.write(self.CONTROL1, 0b11000000)
+        #self.write(self.CONTROL1, 0b11000000)
+        self.write(self.CONTROL1, 0b11000001)  # Boost mode for USB-OTG
 
         # Set IO_LEVEL to 1
         self.write(self.VBUS_CONTROL, 0b00000100)
@@ -141,6 +142,20 @@ class FAN54040ChargerIC(I2CChip):
             print "PC_ON = 1: Post charging (background charging is under progress)"
         else:
             print "PC_ON = 0: Post charging (background charging is NOT under progress)"
+
+        c0 = self.read(self.CONTROL0)
+        fault = c0 & 0b111
+        
+        print "FAULT = " + {
+            0: "No Fault",
+            1: "VBUS OVP",
+            2: "Sleep Mode",
+            3: "Poor Input Source",
+            4: "Battery OVP",
+            5: "Thermal Shutdown",
+            6: "Timer Fault",
+            7: "No Battery"}[fault]
+
 
     def voreg(self):
         v = (self.read(self.OREG) >> 2) * 0.02 + 3.50
