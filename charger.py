@@ -48,8 +48,8 @@ class FAN54040ChargerIC(I2CChip):
         self.set_voreg(4.2)
 
         # Make input current unlimited, set weak battery voltage (Vlowv) to 3.4v
-        #self.write(self.CONTROL1, 0b11000000)
-        self.write(self.CONTROL1, 0b11000001)  # Boost mode for USB-OTG
+        self.write(self.CONTROL1, 0b11000000)
+        #self.write(self.CONTROL1, 0b11000001)  # Boost mode for USB-OTG
 
         # Set IO_LEVEL to 1
         self.write(self.VBUS_CONTROL, 0b00000100)
