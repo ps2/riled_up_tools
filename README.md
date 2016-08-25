@@ -30,3 +30,12 @@ DIS_LEVEL = 0: DIS Pin is LOW
 NOBAT = 1: Battery absent
 PC_ON = 0: Post charging (background charging is NOT under progress)
 ```
+
+## edison_temp.py
+
+Displays core temperature sensors of the edison:
+
+```
+Zone 3 temp = 74C
+Zone 4 temp = 74C
+```
