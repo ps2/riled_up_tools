@@ -71,6 +71,7 @@ class FAN54040ChargerIC(I2CChip):
         else:
             print "Iocharge = %d mA" % self.iocharge()
 
+
         mon0 = self.read(self.MONITOR0)
         if (mon0 & 0b10000000):
             print "ITERM_CMP = 1: Icharge > Iterm"
@@ -155,6 +156,19 @@ class FAN54040ChargerIC(I2CChip):
             5: "Thermal Shutdown",
             6: "Timer Fault",
             7: "No Battery"}[fault]
+
+        stat = (c0 >> 4) & 0b11
+
+        if (c0 & 0b1000):
+            print "BOOST = 1: In Boost mode"
+        else:
+            print "BOOST = 0: Not in Boost mode"
+
+        print "STAT = " + {
+            0: "Ready",
+            1: "PWM Enabled, Charging",
+            2: "Charge done",
+            3: "Fault"}[stat]
 
 
     def voreg(self):
