@@ -22,10 +22,10 @@
 #define CH_BUF0_TO_FLASH            0x02   // Channel 1
 
 // Debug commands
-#define CMD_CHIP_ERASE              0x10
+#define CMD_CHIP_ERASE              0x14
 #define CMD_WR_CONFIG               0x19
 #define CMD_RD_CONFIG               0x24
-#define CMD_READ_STATUS             0x30
+#define CMD_READ_STATUS             0x34
 #define CMD_RESUME                  0x4C
 #define CMD_DEBUG_INSTR_1B          (0x54|1)
 #define CMD_DEBUG_INSTR_2B          (0x54|2)
@@ -185,13 +185,14 @@ unsigned char wait_dup_ready(void)
 *                           command byte [0-3]
 * @param    num_cmd_bytes   The number of data bytes (input to DUP) [0-3]
 *
-* @return   Data returned by command
+* @return   1 if success, 0 if device did not respond
 ******************************************************************************/
 unsigned char debug_command(unsigned char cmd, unsigned char *cmd_bytes,
-                            unsigned short num_cmd_bytes)
+                            unsigned short num_cmd_bytes, unsigned char *response)
 {
     unsigned short i;
     unsigned char output = 0;
+    unsigned char ok = 0;
 
     // Make sure DD is output
     SET_DD_OUTPUT();
@@ -209,15 +210,21 @@ unsigned char debug_command(unsigned char cmd, unsigned char *cmd_bytes,
     SET_DD_INPUT();
 
     // Wait for data to be ready
-    wait_dup_ready();
+    ok = wait_dup_ready();
 
-    // Read returned byte
-    output = read_debug_byte();
+    if (ok) {
+        // Read returned byte
+        output = read_debug_byte();
+        if (response != NULL) {
+	    *response = output;
+        }
+
+    }
 
     // Set DD as output
     SET_DD_OUTPUT();
 
-    return output;
+    return ok;
 }
 
 
@@ -238,8 +245,6 @@ void debug_init(void)
     mraa_gpio_write(gpio_dd, 0);
     mraa_gpio_write(gpio_rst, 0);
 
-    mraa_gpio_write(gpio_dc, 1);
-    
     for (i = 0; i < 150000; i++);   // Wait
     
     mraa_gpio_write(gpio_dc, 1);
@@ -252,6 +257,7 @@ void debug_init(void)
     mraa_gpio_write(gpio_rst, 1); // RESET_N high
 
     for (i = 0; i < 150000; i++);   // Wait
+    for (i = 0; i < 150000; i++);   // Wait
 }
 
 
@@ -259,11 +265,11 @@ void debug_init(void)
 * @brief    Reads the chip ID over the debug interface using the
 *           GET_CHIP_ID command.
 *
-* @return   Returns the chip id returned by the DUP
+* @return   Returns 0 if read failed, 1 if succeeded
 ******************************************************************************/
-unsigned char read_chip_id(unsigned char *revision)
+unsigned char read_chip_id(unsigned char *chip_id, unsigned char *revision)
 {
-    unsigned char id = 0;
+    unsigned char ok;
 
     // Make sure DD is output
     SET_DD_OUTPUT();
@@ -275,16 +281,19 @@ unsigned char read_chip_id(unsigned char *revision)
     SET_DD_INPUT();
 
     // Wait for data to be ready
-    wait_dup_ready();
+    ok = wait_dup_ready();
+    if (!ok) {
+      return ok;
+    }
 
     // Read ID and revision
-    id = read_debug_byte(); // ID
+    *chip_id = read_debug_byte(); // ID
     *revision = read_debug_byte();      // Revision
 
     // Set DD as output
     SET_DD_OUTPUT();
 
-    return id;
+    return ok;
 }
 
 /**************************************************************************//**
@@ -327,18 +336,28 @@ void burst_write_block(unsigned char *src, unsigned short num_bytes)
 * @brief    Issues a CHIP_ERASE command on the debug interface and waits for it
 *           to complete.
 *
-* @return   None.
+* @return   0 if erase failed, 1 if succeeded
 ******************************************************************************/
-void chip_erase(void)
+unsigned char chip_erase(void)
 {
-    volatile unsigned char status;
+    unsigned char status;
+    unsigned char ok;
     // Send command
-    debug_command(CMD_CHIP_ERASE, 0, 0);
+    ok = debug_command(CMD_CHIP_ERASE, 0, 0, NULL);
+    if (!ok) {
+      return ok;
+    }
 
     // Wait for status bit 7 to go low
     do {
-        status = debug_command(CMD_READ_STATUS, 0, 0);
+        ok = debug_command(CMD_READ_STATUS, 0, 0, &status);
+	if (!ok) {
+	  printf("Failed to read status.\n");
+	  return ok;
+        }
+	printf("after erase, status = 0x%02x.\n", status);
     } while((status & STATUS_CHIP_ERASE_BUSY_BM));
+    return 1;
 }
 
 
@@ -362,22 +381,22 @@ void write_xdata_memory_block(unsigned short address,
     instr[0] = 0x90;
     instr[1] = HIBYTE(address);
     instr[2] = LOBYTE(address);
-    debug_command(CMD_DEBUG_INSTR_3B, instr, 3);
+    debug_command(CMD_DEBUG_INSTR_3B, instr, 3, NULL);
 
     for (i = 0; i < num_bytes; i++)
     {
         // MOV A, values[i]
         instr[0] = 0x74;
         instr[1] = values[i];
-        debug_command(CMD_DEBUG_INSTR_2B, instr, 2);
+        debug_command(CMD_DEBUG_INSTR_2B, instr, 2, NULL);
 
         // MOV @DPTR, A
         instr[0] = 0xF0;
-        debug_command(CMD_DEBUG_INSTR_1B, instr, 1);
+        debug_command(CMD_DEBUG_INSTR_1B, instr, 1, NULL);
 
         // INC DPTR
         instr[0] = 0xA3;
-        debug_command(CMD_DEBUG_INSTR_1B, instr, 1);
+        debug_command(CMD_DEBUG_INSTR_1B, instr, 1, NULL);
     }
 }
 
@@ -398,16 +417,16 @@ void write_xdata_memory(unsigned short address, unsigned char value)
     instr[0] = 0x90;
     instr[1] = HIBYTE(address);
     instr[2] = LOBYTE(address);
-    debug_command(CMD_DEBUG_INSTR_3B, instr, 3);
+    debug_command(CMD_DEBUG_INSTR_3B, instr, 3, NULL);
 
     // MOV A, values[i]
     instr[0] = 0x74;
     instr[1] = value;
-    debug_command(CMD_DEBUG_INSTR_2B, instr, 2);
+    debug_command(CMD_DEBUG_INSTR_2B, instr, 2, NULL);
 
     // MOV @DPTR, A
     instr[0] = 0xF0;
-    debug_command(CMD_DEBUG_INSTR_1B, instr, 1);
+    debug_command(CMD_DEBUG_INSTR_1B, instr, 1, NULL);
 }
 
 
@@ -418,19 +437,29 @@ void write_xdata_memory(unsigned short address, unsigned char value)
 *
 * @return   Value read from XDATA
 ******************************************************************************/
-unsigned char read_xdata_memory(unsigned short address)
+unsigned char read_xdata_memory(unsigned short address, unsigned char *resp)
 {
     unsigned char instr[3];
+    unsigned char ok;
 
     // MOV DPTR, address
     instr[0] = 0x90;
     instr[1] = HIBYTE(address);
     instr[2] = LOBYTE(address);
-    debug_command(CMD_DEBUG_INSTR_3B, instr, 3);
+    *resp = 0;
+
+    ok = debug_command(CMD_DEBUG_INSTR_3B, instr, 3, NULL);
+    if (!ok) {
+      return ok;
+    }
+
 
     // MOVX A, @DPTR
     instr[0] = 0xE0;
-    return debug_command(CMD_DEBUG_INSTR_1B, instr, 1);
+
+    ok = debug_command(CMD_DEBUG_INSTR_1B, instr, 1, resp);
+    
+    return ok;
 }
 
 
@@ -458,17 +487,17 @@ void read_flash_memory_block(unsigned char bank,unsigned short flash_addr,
     instr[0] = 0x90;
     instr[1] = HIBYTE(xdata_addr);
     instr[2] = LOBYTE(xdata_addr);
-    debug_command(CMD_DEBUG_INSTR_3B, instr, 3);
+    debug_command(CMD_DEBUG_INSTR_3B, instr, 3, NULL);
 
     for (i = 0; i < num_bytes; i++)
     {
         // 3. Move value pointed to by DPTR to accumulator (MOVX A, @DPTR)
         instr[0] = 0xE0;
-        values[i] = debug_command(CMD_DEBUG_INSTR_1B, instr, 1);
+        debug_command(CMD_DEBUG_INSTR_1B, instr, 1, &values[i]);
 
         // 4. Increment data pointer (INC DPTR)
         instr[0] = 0xA3;
-        debug_command(CMD_DEBUG_INSTR_1B, instr, 1);
+        debug_command(CMD_DEBUG_INSTR_1B, instr, 1, NULL);
     }
 }
 
@@ -486,6 +515,9 @@ void read_flash_memory_block(unsigned char bank,unsigned short flash_addr,
 void write_flash_memory_block(unsigned char *src, unsigned long start_addr,
                               unsigned short num_bytes)
 {
+    unsigned char ok = 0;
+    unsigned char fctl = 0;
+	
     // 1. Write the 2 DMA descriptors to RAM
     write_xdata_memory_block(ADDR_DMA_DESC_0, dma_desc_0, 8);
     write_xdata_memory_block(ADDR_DMA_DESC_1, dma_desc_1, 8);
@@ -514,7 +546,16 @@ void write_flash_memory_block(unsigned char *src, unsigned long start_addr,
     write_xdata_memory(DUP_FCTL, 0x06);
 
     // 7. Wait until flash controller is done
-    while (read_xdata_memory(DUP_FCTL) & 0x80);
+    while(1) {
+      ok = read_xdata_memory(DUP_FCTL, &fctl);
+      if (!ok) {
+	printf("read FCTL failed.\n");
+	break;
+      }
+      if (!(fctl & 0x80)) {
+	break;
+      }
+    }
 }
 
 
@@ -523,6 +564,18 @@ void close_gpios()
     mraa_gpio_close(gpio_rst);
     mraa_gpio_close(gpio_dc);
     mraa_gpio_close(gpio_dd);
+}
+
+#define FLASH_READ_SIZE 0x7fff
+
+void dump_flash()
+{
+    unsigned char flash_buf[FLASH_READ_SIZE];
+    FILE *fp;
+    read_flash_memory_block(0, 0x0000, FLASH_READ_SIZE, flash_buf);
+    fp = fopen("flash.dat", "w+");
+    fwrite(flash_buf, 1, FLASH_READ_SIZE, fp);
+    fclose(fp);
 }
 
 /**************************************************************************//**
@@ -541,6 +594,9 @@ int main(int argc, char **argv)
     unsigned char debug_config = 0;
     unsigned char instr[3];
     int num_tries = 0;
+    unsigned char status;
+    unsigned char ok;
+    int i;
     
     // Init mraa gpio structs
     gpio_rst = mraa_gpio_init(RESET_N);
@@ -557,7 +613,6 @@ int main(int argc, char **argv)
     mraa_gpio_write(gpio_dc, 0);
     mraa_gpio_write(gpio_dd, 0);
 
-
     /****************************************
     * Initialize debug interface
     *****************************************/
@@ -567,20 +622,46 @@ int main(int argc, char **argv)
       debug_init();
 
       // Not sure why this is necessary, but the cc-debugger does it
-      instr[0] = 0x00;
-      debug_command(CMD_DEBUG_INSTR_1B, instr, 1);
+      //instr[0] = 0x00;
+      //ok = debug_command(CMD_DEBUG_INSTR_1B, instr, 1, NULL);
+      //if (!ok) {
+//	printf("NOP failed!\n");
+//	break;
+ //     }
+  //    for (i = 0; i < 150000; i++);   // Wait
+
+      ok = debug_command(CMD_READ_STATUS, 0, 0, &status);
+      if (!ok) {
+	printf("read status failed!\n");
+	break;
+      }
+      printf("status = 0x%02x\n", status);
+      for (i = 0; i < 150000; i++);   // Wait
 
       /****************************************
       * Read chip ID
       *****************************************/
-    
-      chip_id = read_chip_id(&revision);
-      if(chip_id != 0) {
-        printf("Chip id = 0x%x, revision = 0x%x\n", chip_id, revision);
-	break;
+      ok = read_chip_id(&chip_id, &revision);
+      if (!ok) {
+	printf("Read chip id failed.");
+	continue;
       }
-      printf("No chip detected!");
+      printf("Chip id = 0x%x, revision = 0x%x\n", chip_id, revision);
+      break;
     }
+
+    for (i = 0; i < 150000; i++);   // Wait
+
+    printf("Erasing chip.\n");
+    if (chip_erase()) {
+      printf("Chip erased.\n");
+    } else {
+      printf("Chip erase failed.\n");
+    }
+    
+    //dump_flash();
+    
+
     close_gpios();
 
 }
