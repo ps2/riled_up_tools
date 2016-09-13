@@ -28,9 +28,58 @@ class CCDebugParser
     COMMANDS.each { |code,name|
       @cmd_handlers[code] = default_handler
     }
+
+    @cmd_handlers[0x50] = self.method(:parse_debug_instruction)
+  end
+
+  # SFR registers
+  SFR = {
+    0x82 => "DPL0",
+    0x83 => "DPH0",
+    0x92 => "DPS",
+  }
+
+  XDATA_REG = {
+    0xDF36 => "PARTNUM",
+  }
+
+
+  def parse_debug_instruction(cmd, args, response, data)
+    args_hex = args.map {|a| a.to_s(16)}
+    resp_hex = response.to_s(16)
+    print " - "
+    case args[0]
+    when 0x00 # NOP
+      puts "NOP"
+    when 0xe5 # MOV A,direct
+      arg = SFR[args[1]] || args_hex[1]
+      puts "MOV A, #{arg} -> #{resp_hex}"
+    when 0x74 # MOV A,#data
+      arg = SFR[args[1]] || args_hex[1]
+      puts "MOV A,\##{arg} -> #{resp_hex}"
+    when 0x75 # MOV direct,#data
+      arg0 = SFR[args[1]] || args_hex[1]
+      arg1 = SFR[args[2]] || args_hex[2]
+      puts "MOV #{arg0}, \##{arg1} -> #{resp_hex}"
+    when 0x90 # MOV DPTR,#data16
+      addr = (args[1] << 8) + args[2]
+      addr = XDATA_REG[addr] || addr.to_s(16)
+      puts "MOV DPTR, #{addr} -> #{resp_hex}"
+    when 0xe0 # MOVX A,@DPTR
+      puts "MOVX A,@DPTR"
+    when 0xa3
+      puts "INC DPTR"
+    when 0xF0
+      puts "MOVX @DPTR,A"
+    else
+      puts "Undecoded Opcode #{args_hex.join(',')} -> #{resp_hex}"
+    end
+
   end
 
   def parse(data)
+    # Skip first row, which is header:
+    data.next
     while cmd = data.next
       arg_count = cmd & 0b11
       args = arg_count.times.map { data.next }
@@ -50,5 +99,5 @@ end
 begin
   parser = CCDebugParser.new
   parser.parse(CSV.foreach(ARGV[0]).lazy.map {|row| row[2].to_i(16)})
-rescue StopIteration
+rescue StopIteration, Errno::EPIPE  # Catch end -of-input, and end-of-input
 end
