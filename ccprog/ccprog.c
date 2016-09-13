@@ -316,7 +316,7 @@ unsigned char read_chip_id(unsigned char *chip_id, unsigned char *revision)
 ******************************************************************************/
 unsigned char burst_write_block(unsigned char *src, unsigned short num_bytes)
 {
-    unsigned short i;
+    unsigned int i;
     unsigned char ok;
     unsigned char cmd;
 
@@ -334,6 +334,9 @@ unsigned char burst_write_block(unsigned char *src, unsigned short num_bytes)
     printf("Writing cmd: 0x%02x\n", cmd);
     write_debug_byte(cmd);
     write_debug_byte(LOBYTE(num_bytes));
+
+    for (i = 0; i < 150000; i++);   // Wait
+
     for (i = 0; i < num_bytes; i++)
     {
         write_debug_byte(src[i]);
@@ -657,11 +660,21 @@ void write_flash()
     unsigned char ok;
     unsigned int len_to_write = 0;
     unsigned int offset = 0;
+    unsigned int i;
+    unsigned int swap;
     FILE *fp;
     fp = fopen("firmware.dat", "r");
     if (fp != NULL) {
       fread(flash_buf, 1, TOTAL_FLASH_SIZE, fp);
       fclose(fp);
+
+      // Need to swap bytes for flash controller
+      //for(i=0; i<(TOTAL_FLASH_SIZE/2); i++) {
+      //  swap = flash_buf[i*2];
+      //  flash_buf[i*2] = flash_buf[i*2+1];
+      //  flash_buf[i*2+1] = swap;
+      //}
+
       printf("Writing flash\n");
       while(offset < TOTAL_FLASH_SIZE) {
 	len_to_write = TOTAL_FLASH_SIZE - offset;
