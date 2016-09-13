@@ -41,38 +41,44 @@ class CCDebugParser
 
   XDATA_REG = {
     0xDF36 => "PARTNUM",
+    0xDFD4 => "DMA0CFGL",
+    0xDFD5 => "DMA0CFGH",
+    0xDFAC => "FADDRL",
+    0xDFAD => "FADDRH",
+    0xDFD6 => "DMAARM",
+    0xDFAE => "FCTL",
   }
 
 
-  def parse_debug_instruction(cmd, args, response, data)
+  def parse_debug_instruction(cmd, args, acc, data)
     args_hex = args.map {|a| a.to_s(16)}
-    resp_hex = response.to_s(16)
+    acc_str = acc ? " -> #{acc.to_s(16)}" : nil
     print " - "
     case args[0]
     when 0x00 # NOP
       puts "NOP"
     when 0xe5 # MOV A,direct
       arg = SFR[args[1]] || args_hex[1]
-      puts "MOV A, #{arg} -> #{resp_hex}"
+      puts "MOV A, #{arg} #{acc_str}"
     when 0x74 # MOV A,#data
       arg = SFR[args[1]] || args_hex[1]
-      puts "MOV A,\##{arg} -> #{resp_hex}"
+      puts "MOV A,\##{arg} #{acc_str}"
     when 0x75 # MOV direct,#data
       arg0 = SFR[args[1]] || args_hex[1]
       arg1 = SFR[args[2]] || args_hex[2]
-      puts "MOV #{arg0}, \##{arg1} -> #{resp_hex}"
+      puts "MOV #{arg0}, \##{arg1}"
     when 0x90 # MOV DPTR,#data16
       addr = (args[1] << 8) + args[2]
       addr = XDATA_REG[addr] || addr.to_s(16)
-      puts "MOV DPTR, #{addr} -> #{resp_hex}"
+      puts "MOV DPTR, #{addr}"
     when 0xe0 # MOVX A,@DPTR
-      puts "MOVX A,@DPTR"
+      puts "MOVX A,@DPTR #{acc_str}"
     when 0xa3
       puts "INC DPTR"
     when 0xF0
       puts "MOVX @DPTR,A"
     else
-      puts "Undecoded Opcode #{args_hex.join(',')} -> #{resp_hex}"
+      puts "Undecoded Opcode #{args_hex.join(',')} #{acc_str}"
     end
 
   end
