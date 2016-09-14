@@ -504,9 +504,9 @@ unsigned char write_flash_memory_block(unsigned char *src, unsigned long start_a
   if (!ok) { return ok; }
 
   // 3. Set Flash controller start address (wants 16MSb of 18 bit address)
-  ok = write_xdata_memory(DUP_FADDRH, HIBYTE( (start_addr>>2) ));
+  ok = write_xdata_memory(DUP_FADDRH, HIBYTE( (start_addr>>1) ));
   if (!ok) { return ok; }
-  ok = write_xdata_memory(DUP_FADDRL, LOBYTE( (start_addr>>2) ));
+  ok = write_xdata_memory(DUP_FADDRL, LOBYTE( (start_addr>>1) ));
   if (!ok) { return ok; }
 
   // 4. Write data to buffer
@@ -591,7 +591,7 @@ void write_flash()
     printf("Writing flash.");
     fflush(stdout);
     while(offset < TOTAL_FLASH_SIZE) {
-      ok = write_flash_memory_block(flash_buf, offset);
+      ok = write_flash_memory_block(flash_buf+offset, offset);
       if (ok) {
 	printf(".");
 	fflush(stdout);
