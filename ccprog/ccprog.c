@@ -81,10 +81,10 @@ const unsigned char dma_desc[8] =
   LOBYTE(ADDR_BUF0),              // src[7:0]
   HIBYTE(DUP_FWDATA),             // dest[15:8]
   LOBYTE(DUP_FWDATA),             // dest[7:0]
-  HIBYTE(FLASH_BUF_LEN),          // len[12:8] - filled in later
+  HIBYTE(FLASH_BUF_LEN),          // len[12:8]
   LOBYTE(FLASH_BUF_LEN),          // len[7:0]
-  0x12,                           // trigger: FLASH
-  0x42,                           // increment source
+  0x12,                           // trigger: Flash data write complete
+  0x42,                           // increment source, DMA high priority
 };
 
 /**************************************************************************//**
