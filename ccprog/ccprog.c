@@ -1,3 +1,8 @@
+
+// CC-DEBUGGER protocol
+// http://www.ti.com/lit/ug/swra124/swra124.pdf
+//
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,10 +13,10 @@
 #include "readhex.h"
 
 
-// Programmer data line bitmasks (programmer I/O port 0)
-#define DD                          38 // GPIO 43
-#define DC                          37 // GPIO 40
-#define RESET_N                     4  // GPIO 135
+// Default pins used for programming
+#define RILED_UP_DD                 38 // GPIO 43
+#define RILED_UP_DC                 37 // GPIO 40
+#define RILED_UP_RESET              4  // GPIO 135
 
 // DMA addresses
 #define ADDR_BUF0                 0xf000 // Buffer (512 bytes)j
@@ -45,6 +50,7 @@
 #define STATUS_STACK_OVERFLOW_BM    0x01
 
 // DUP registers (XDATA space address)
+#define DUP_FWT                     0xDFAB  // Flash Write timing
 #define DUP_FADDRL                  0xDFAC  // Flash controller addr
 #define DUP_FADDRH                  0xDFAD  // Flash controller addr
 #define DUP_FCTL                    0xDFAE  // Flash controller
@@ -52,6 +58,13 @@
 #define DUP_DMA0CFGL                0xDFD4  // Low byte, DMA config ch. 0
 #define DUP_DMA0CFGH                0xDFD5  // Low byte, DMA config ch. 0
 #define DUP_DMAARM                  0xDFD6  // DMA arming register
+
+// Chip ids
+#define CHIPID_CC1110               0x01
+#define CHIPID_CC2430               0x85
+#define CHIPID_CC2431               0x89
+#define CHIPID_CC2510               0x81
+#define CHIPID_CC2511               0x91
 
 // Utility macros
 //! Set programmer DD line as input
@@ -226,40 +239,6 @@ void reset_dup(void)
   mraa_gpio_write(gpio_rst, 1);
 }
 
-
-/**************************************************************************//**
-* @brief    Resets the DUP into debug mode. Function assumes that
-*           the programmer I/O has already been configured using e.g.
-*           programmer_init().
-*
-* @return   None.
-******************************************************************************/
-void debug_init(void)
-{
-  int i;
-
-
-  // Send two flanks on DC while keeping RESET_N low
-  mraa_gpio_write(gpio_dc, 0);
-  mraa_gpio_write(gpio_dd, 0);
-  mraa_gpio_write(gpio_rst, 0);
-
-  for (i = 0; i < 150000; i++);   // Wait
-
-  mraa_gpio_write(gpio_dc, 1);
-  mraa_gpio_write(gpio_dc, 0);
-  mraa_gpio_write(gpio_dc, 1);
-  mraa_gpio_write(gpio_dc, 0);
-
-  for (i = 0; i < 150000; i++);   // Wait
-
-  mraa_gpio_write(gpio_rst, 1); // RESET_N high
-
-  for (i = 0; i < 150000; i++);   // Wait
-  for (i = 0; i < 150000; i++);   // Wait
-}
-
-
 /**************************************************************************//**
 * @brief    Reads the chip ID over the debug interface using the
 *           GET_CHIP_ID command.
@@ -294,6 +273,67 @@ unsigned char read_chip_id(unsigned char *chip_id, unsigned char *revision)
 
   return ok;
 }
+
+/**************************************************************************//**
+* @brief    Resets the DUP into debug mode. Function assumes that
+*           the programmer I/O has already been configured using e.g.
+*           programmer_init().
+*
+* @return   1 on success, 0 if fail
+******************************************************************************/
+int debug_init(unsigned char *chip_id, unsigned char *revision)
+{
+  unsigned char instr[3];
+  unsigned char ok;
+  unsigned char reg;
+  unsigned char status;
+  int i;
+
+  // Send two flanks on DC while keeping RESET_N low
+  mraa_gpio_write(gpio_dc, 0);
+  mraa_gpio_write(gpio_dd, 0);
+  mraa_gpio_write(gpio_rst, 0);
+
+  for (i = 0; i < 150000; i++);   // Wait
+
+  mraa_gpio_write(gpio_dc, 1);
+  mraa_gpio_write(gpio_dc, 0);
+  mraa_gpio_write(gpio_dc, 1);
+  mraa_gpio_write(gpio_dc, 0);
+
+  for (i = 0; i < 150000; i++);   // Wait
+
+  mraa_gpio_write(gpio_rst, 1); // RESET_N high
+
+  for (i = 0; i < 150000; i++);   // Wait
+  for (i = 0; i < 150000; i++);   // Wait
+
+  // Not sure why this is necessary, but the cc-debugger does it
+  instr[0] = 0x00;
+  ok = debug_command(CMD_DEBUG_INSTR_1B, instr, 1, &reg);
+  if (!ok) {
+    printf("NOP failed!\n");
+    return 0;
+  }
+  for (i = 0; i < 150000; i++);   // Wait
+
+  ok = debug_command(CMD_READ_STATUS, 0, 0, &status);
+  if (!ok) {
+    printf("read status failed!\n");
+    return 0;
+  }
+
+  /****************************************
+  * Read chip ID
+  *****************************************/
+  ok = read_chip_id(chip_id, revision);
+  if (!ok) {
+    printf("Read chip id failed.");
+    return 0;
+  }
+}
+
+
 
 /**************************************************************************//**
 * @brief    Issues a CHIP_ERASE command on the debug interface and waits for it
@@ -636,31 +676,11 @@ int write_flash(char *filename)
   return md.size_written;
 }
 
-/**************************************************************************//**
-* @brief    Main function.
-*
-* @return   None.
-******************************************************************************/
-int main(int argc, char **argv)
-{
-
-  // CC-DEBUGGER protocol
-  // http://www.ti.com/lit/ug/swra124/swra124.pdf
-
-  unsigned char chip_id = 0;
-  unsigned char revision = 0;
-  unsigned char debug_config = 0;
-  unsigned char instr[3];
-  int num_tries = 0;
-  unsigned char status;
-  unsigned char ok;
-  unsigned char reg;
-  int i;
-
+void init_gpios(int dc, int dd, int reset_n) {
   // Init mraa gpio structs
-  gpio_rst = mraa_gpio_init(RESET_N);
-  gpio_dc = mraa_gpio_init(DC);
-  gpio_dd = mraa_gpio_init(DD);
+  gpio_rst = mraa_gpio_init(reset_n);
+  gpio_dc = mraa_gpio_init(dc);
+  gpio_dd = mraa_gpio_init(dd);
 
   // Initialize gpios as outputs
   mraa_gpio_dir(gpio_rst, MRAA_GPIO_OUT);
@@ -671,127 +691,152 @@ int main(int argc, char **argv)
   mraa_gpio_write(gpio_rst, 1);
   mraa_gpio_write(gpio_dc, 0);
   mraa_gpio_write(gpio_dd, 0);
+}
+
+int init(int dc_pin, int dd_pin, int reset_pin) {
+  unsigned char chip_id = 0;
+  unsigned char revision = 0;
+  unsigned char instr[3];
+  unsigned char reg;
+  int ok;
+  int i;
+
+  init_gpios(dc_pin, dd_pin, reset_pin);
 
   /****************************************
   * Initialize debug interface
   *****************************************/
 
-  while (num_tries < 3) {
-    // Put the DUP in debug mode
-    debug_init();
-
-    // Not sure why this is necessary, but the cc-debugger does it
-    instr[0] = 0x00;
-    ok = debug_command(CMD_DEBUG_INSTR_1B, instr, 1, &reg);
-    if (!ok) {
-      printf("NOP failed!\n");
-      break;
-    }
-    for (i = 0; i < 150000; i++);   // Wait
-
-    ok = debug_command(CMD_READ_STATUS, 0, 0, &status);
-    if (!ok) {
-      printf("read status failed!\n");
-      break;
-    }
-    printf("status = 0x%02x\n", status);
-    for (i = 0; i < 150000; i++);   // Wait
-
-    /****************************************
-    * Read chip ID
-    *****************************************/
-    ok = read_chip_id(&chip_id, &revision);
-    if (!ok) {
-      printf("Read chip id failed.");
-      continue;
-    }
-    printf("Chip id = 0x%x, revision = 0x%x\n", chip_id, revision);
-    break;
+  if (!debug_init(&chip_id, &revision)) {
+    printf("Could not put device into debug mode.\n");
+    return 0;
   }
 
-  for (i = 0; i < 150000; i++);   // Wait
-
-  ok = read_xdata_memory(0xDFC6, &reg);
-  if (ok) {
-    printf("CLKCON = 0x%02x\n", reg);
-  } else {
-    printf("could not read CLKCON!\n");
+  if (chip_id != CHIPID_CC1110) {
+    printf("This code is only tested on CC1110. Unsupported chip id = 0x%02x.\n", chip_id);
+    return 0;
   }
 
   // Write FWT for 24MHz clock (24MHz = 0x20)
-  ok = write_xdata_memory(0xDFAB, 0x20);
-  if (ok) {
-    printf("Updated FWT\n");
-  } else {
+  if (!write_xdata_memory(DUP_FWT, 0x20)) {
     printf("could not update FWT!\n");
+    return 0;
   }
-  for (i = 0; i < 150000; i++);   // Wait
 
-  // Read FWT
-  ok = read_xdata_memory(0xDFAB, &reg);
-  if (ok) {
-    printf("FWT = 0x%02x\n", reg);
-  } else {
-    printf("could not read FWT!\n");
-  }
-  for (i = 0; i < 150000; i++);   // Wait
-
-  // Write Config
+  // Write Config  
+  // 0x22 = Timer suspend, plus a bit in the upper nibble that I'm not 
+  // sure what it's function is, but the cc-debugger sends.
   instr[0] = 0x22;
-  ok = debug_command(CMD_WR_CONFIG, instr, 1, &reg);
-  if (ok) {
-    printf("Debug Config = 0x%02x\n", reg);
-  } else {
-    printf("could not read Debug Config !\n");
+  if (!debug_command(CMD_WR_CONFIG, instr, 1, &reg)) {
+    printf("could not write Debug Config !\n");
+    return 0;
   }
-  for (i = 0; i < 150000; i++);   // Wait
-
-  // Read Config
-  ok = debug_command(CMD_RD_CONFIG, 0, 0, &reg);
-  if (ok) {
-    printf("Wrote debug config\n", reg);
-  } else {
-    printf("could not write debug config !\n");
-  }
-  for (i = 0; i < 150000; i++);   // Wait
-
-  // Read P0DIR
-  ok = read_xdata_memory(0xDFFD, &reg);
-  if (ok) {
-    printf("P0DIR = 0x%02x\n", reg);
-  } else {
-    printf("could not read P0DIR!\n");
-  }
-  for (i = 0; i < 150000; i++);   // Wait
-
-  // Write P0DIR
-  ok = write_xdata_memory(0xDFFD, 0b11);
-  if (ok) {
-    printf("Updated P0DIR\n");
-  } else {
-    printf("could not update P0DIR!\n");
-  }
-  for (i = 0; i < 150000; i++);   // Wait
-
-  printf("Erasing chip.\n");
-  if (chip_erase()) {
-    printf("Chip erased.\n");
-  } else {
-    printf("Chip erase failed.\n");
-  }
-
-  // Read P0DIR
-  ok = read_xdata_memory(0xDFFD, &reg);
-  if (ok) {
-    printf("P0DIR = 0x%02x\n", reg);
-  } else {
-    printf("could not read P0DIR!\n");
-  }
-
-  int flash_size = write_flash("uart1_alt2_RILEYLINK_US_STDLOC.hex");
-  //dump_flash(flash_size);
-  reset_dup();
-
-  close_gpios();
-
+  return 1;
 }
+
+void usage(char *prog_name, char *command) {
+  if (command) {
+    if (strcmp(command, "write") == 0) {
+      printf("Usage: %s write filename.hex\n\n", prog_name);
+    }
+  } else {
+    printf("Chipcon CC1110 GPIO-based (bitbang) programmer\n\n", prog_name);
+    printf("Usage: %s command\n\n", prog_name);
+    printf(" Commands supported: erase reset write\n\n");
+    printf(" Command line options:\n");
+    printf("   -p DC,DD,RESET              specify mraa pins for debugging cc chip:\n\n");
+  }
+  exit(1);
+}
+
+/**************************************************************************//**
+* @brief    Main function.
+*
+* @return   None.
+******************************************************************************/
+int main(int argc, char **argv)
+{
+  int c;
+  char *pin_str = NULL;
+  
+  // Use defaults for RiledUp board.
+  int reset_pin = RILED_UP_RESET;
+  int dd_pin    = RILED_UP_DD;
+  int dc_pin    = RILED_UP_DC;
+
+#define INIT init(dc_pin, dd_pin, reset_pin)
+
+  while ((c = getopt(argc, argv, "p:")) != -1) {
+    switch (c)
+    {
+      case 'p':
+        pin_str = optarg;
+        break;
+      case '?':
+        if (optopt == 'p')
+          fprintf (stderr, "Option -%c requires an argument.\n", optopt);
+        else if (isprint (optopt))
+          fprintf (stderr, "Unknown option `-%c'.\n", optopt);
+        else
+          fprintf (stderr, "Unknown option character `\\x%x'.\n", optopt);
+        return 1;
+      default:
+        abort();
+    }
+  }
+
+  if (pin_str) {
+    char *saveptr;
+    char *token;
+    token = strtok_r(pin_str, ",", &saveptr);
+    if (token) {
+      dc_pin = atoi(token);
+    }
+    token = strtok_r(NULL, ",", &saveptr);
+    if (token) {
+      dd_pin = atoi(token);
+    }
+    token = strtok_r(NULL, ",", &saveptr);
+    if (token) {
+      reset_pin = atoi(token);
+    }
+    printf("Using pins: DC=%d, DD=%d, RESET=%d\n", dc_pin, dd_pin, reset_pin);
+  }
+
+  char *prog_name = argv[0];
+  int remaining_argc = argc - optind;
+
+  if (remaining_argc > 0) {
+    char *cmd = argv[optind];
+    if (strcmp(cmd, "reset") == 0) {
+      if (INIT) {
+        reset_dup();
+        printf("Device reset\n");
+      }
+    } else if (strcmp(cmd, "erase") == 0) {
+      printf("Erasing chip.\n");
+      if (INIT && chip_erase()) {
+        printf("Chip erased.\n");
+      } else {
+        printf("Chip erase failed.\n");
+      }
+    } else if (strcmp(cmd, "write") == 0) {
+      if (remaining_argc < 2) {
+        usage(prog_name, cmd);
+      } else {
+        char *hex_file = argv[optind+1];
+        if (INIT) {
+          printf("Intel Hex file: %s\n", hex_file);
+          write_flash(hex_file);
+          reset_dup();
+        }
+      }
+    } else {
+      fprintf(stderr, "Unknown command: %s\n", cmd);
+    }
+  } else {
+    usage(prog_name, NULL);
+  }
+  close_gpios();
+}
+
