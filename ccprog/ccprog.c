@@ -5,6 +5,7 @@
 #include <mraa.h>
 #include <math.h>
 #include <mraa/gpio.h>
+#include "readhex.h"
 
 
 // Programmer data line bitmasks (programmer I/O port 0)
@@ -211,6 +212,18 @@ unsigned char debug_command(unsigned char cmd, unsigned char *cmd_bytes, unsigne
   }
 
   return ok;
+}
+
+void reset_dup(void)
+{
+  int i;
+  mraa_gpio_write(gpio_rst, 0);
+  for (i = 0; i < 150000; i++);   // Wait
+  for (i = 0; i < 150000; i++);   // Wait
+  for (i = 0; i < 150000; i++);   // Wait
+  for (i = 0; i < 150000; i++);   // Wait
+  for (i = 0; i < 150000; i++);   // Wait
+  mraa_gpio_write(gpio_rst, 1);
 }
 
 
@@ -469,13 +482,20 @@ unsigned char read_flash_memory_block(unsigned short flash_addr, unsigned short 
     // 3. Move value pointed to by DPTR to accumulator (MOVX A, @DPTR)
     instr[0] = 0xE0;
     ok = debug_command(CMD_DEBUG_INSTR_1B, instr, 1, &values[i]);
-    if (!ok) { return ok; }
+    if (!ok) { 
+      printf("Flash read (MOVX) failed at loc: %d\n", i);
+      return ok; 
+    }
 
     // 4. Increment data pointer (INC DPTR)
     instr[0] = 0xA3;
     ok = debug_command(CMD_DEBUG_INSTR_1B, instr, 1, &resp);
-    if (!ok) { return ok; }
+    if (!ok) { 
+      printf("Flash read (INC) failed at loc: %d\n", i);
+      return ok; 
+    }
   }
+  return 1;
 }
 
 /**************************************************************************//**
@@ -554,57 +574,66 @@ void close_gpios()
   mraa_gpio_close(gpio_dd);
 }
 
-#define TOTAL_FLASH_SIZE 0x830
+#define TOTAL_FLASH_SIZE 0x4000
 #define FLASH_BLOCK_SIZE 0x400
 
-void dump_flash()
+void dump_flash(int flash_size)
 {
   unsigned char ok;
   unsigned char flash_buf[TOTAL_FLASH_SIZE];
   FILE *fp;
+
   printf("Reading flash.\n");
-  ok = read_flash_memory_block(0x0000, TOTAL_FLASH_SIZE, flash_buf);
+  ok = read_flash_memory_block(0x0000, flash_size, flash_buf);
   if (!ok) {
     printf("Read flash failed!\n");
     return;
   }
   fp = fopen("flash.out", "w+");
-  fwrite(flash_buf, 1, TOTAL_FLASH_SIZE, fp);
+  fwrite(flash_buf, 1, flash_size, fp);
   fclose(fp);
 }
 
 
-void write_flash()
+int write_flash(char *filename)
 {
-  unsigned char flash_buf[TOTAL_FLASH_SIZE];
+  struct memory_desc md;
   unsigned char ok;
-  unsigned int len_to_write = 0;
   unsigned int offset = 0;
   unsigned int i;
-  unsigned int swap;
   FILE *fp;
-  fp = fopen("firmware.dat", "r");
+  unsigned char *buf = malloc(TOTAL_FLASH_SIZE);
+  memory_desc_init(&md, buf, 0, TOTAL_FLASH_SIZE);
+  fp = fopen(filename, "r");
   if (fp != NULL) {
-    fread(flash_buf, 1, TOTAL_FLASH_SIZE, fp);
+    int success = read_hex(fp, memory_desc_store, &md, 1);
     fclose(fp);
 
-    printf("Writing flash.");
-    fflush(stdout);
-    while(offset < TOTAL_FLASH_SIZE) {
-      ok = write_flash_memory_block(flash_buf+offset, offset);
-      if (ok) {
-	printf(".");
-	fflush(stdout);
-        offset += FLASH_BLOCK_SIZE;
-      } else {
-        printf("Writing flash failed.");
-        break;
+    if (success) {
+      printf("Writing %d bytes to flash.", md.size_written);
+
+      fflush(stdout);
+      while(offset < md.size_written) {
+        ok = write_flash_memory_block(buf+offset, offset);
+        if (ok) {
+          printf(".");
+          fflush(stdout);
+          offset += FLASH_BLOCK_SIZE;
+        } else {
+          printf("Writing flash failed.");
+	  return -1;
+        }
       }
+    } else {
+      printf("Couldn't decode \"%s\" as INTEL hex file.\n", filename);
+      return -1;
     }
     printf("\n");
   } else {
-    printf("Unable to open file \"firmware.dat\" for reading.\n");
+    printf("Unable to open file \"%s\" for reading.\n", filename);
+    return -1;
   }
+  return md.size_written;
 }
 
 /**************************************************************************//**
@@ -681,7 +710,6 @@ int main(int argc, char **argv)
   }
 
   for (i = 0; i < 150000; i++);   // Wait
-
 
   ok = read_xdata_memory(0xDFC6, &reg);
   if (ok) {
@@ -760,8 +788,9 @@ int main(int argc, char **argv)
     printf("could not read P0DIR!\n");
   }
 
-  write_flash();
-  dump_flash();
+  int flash_size = write_flash("uart1_alt2_RILEYLINK_US_STDLOC.hex");
+  //dump_flash(flash_size);
+  reset_dup();
 
   close_gpios();
 

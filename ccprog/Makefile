@@ -1,2 +1,2 @@
-ccprog: ccprog.c
-	gcc -o ccprog ccprog.c -lmraa
+ccprog: ccprog.c readhex.c
+	gcc -o ccprog ccprog.c readhex.c -lmraa
